@@ -1,0 +1,133 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - ./frontend/.env
+    expose:
+      - "3000"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+
+      # redirect http → https
+      - "traefik.http.middlewares.${ENVIRONMENT}-https.redirectscheme.scheme=https"
+
+      # HTTP router (redirects to HTTPS)
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-web.rule=Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-web.entrypoints=web"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-web.middlewares=${ENVIRONMENT}-https"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-web.priority=10"
+
+      # HTTPS router
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-secure.rule=Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-secure.entrypoints=websecure"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-secure.tls.certresolver=le"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-secure.priority=10"
+      - "traefik.http.routers.${ENVIRONMENT}-frontend-secure.service=${ENVIRONMENT}-frontend-svc"
+      # Service definition for frontend
+      - "traefik.http.services.${ENVIRONMENT}-frontend-svc.loadbalancer.server.port=3000"
+
+      # Tell Traefik which docker network to use
+      - "traefik.docker.network=web"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    command: daphne -b 0.0.0.0 -p 8000 app.asgi:application
+    volumes:
+      - ./backend/static:/app/static
+      - ./backend/media:/app/media
+    expose:
+      - "8000"
+    networks:
+      - web
+      - backend
+    labels:
+      - "traefik.enable=true"
+
+      # redirect http → https
+      - "traefik.http.middlewares.${ENVIRONMENT}-https.redirectscheme.scheme=https"
+
+      # API over HTTP (redirects to HTTPS)
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-web.rule=(Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)) && PathPrefix(`/api/`)"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-web.entrypoints=web"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-web.middlewares=${ENVIRONMENT}-https"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-web.priority=100"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-web.service=${ENVIRONMENT}-backend-svc"
+
+      # API over HTTPS
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.rule=(Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)) && PathPrefix(`/api/`)"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.entrypoints=websecure"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.tls.certresolver=le"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.priority=100"
+      - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.service=${ENVIRONMENT}-backend-svc"
+      # Service definition for backend (Django / Daphne)
+      - "traefik.http.services.${ENVIRONMENT}-backend-svc.loadbalancer.server.port=8000"
+
+      - "traefik.docker.network=web"
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - backend
+    command: celery -A app worker --loglevel=info --concurrency=4
+    volumes:
+      - ./backend:/app
+    networks:
+      - web
+      - backend
+
+  assets:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      # Static and media files mounted read-only into Nginx
+      - ./backend/static:/usr/share/nginx/html/static:ro
+      - ./backend/media:/usr/share/nginx/html/media:ro
+      # Nginx vhost for static/media
+      - ./nginx/assets.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+
+      # redirect http → https
+      - "traefik.http.middlewares.${ENVIRONMENT}-https.redirectscheme.scheme=https"
+
+      # HTTP → assets (static + media), then redirect to HTTPS
+      - "traefik.http.routers.${ENVIRONMENT}-assets-web.rule=(Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)) && (PathPrefix(`/static/`) || PathPrefix(`/media/`))"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-web.entrypoints=web"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-web.middlewares=${ENVIRONMENT}-https"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-web.priority=95"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-web.service=${ENVIRONMENT}-assets-svc"
+
+      # HTTPS → assets (static + media)
+      - "traefik.http.routers.${ENVIRONMENT}-assets-secure.rule=(Host(`${DOMAIN}`) || Host(`${WWW_DOMAIN}`)) && (PathPrefix(`/static/`) || PathPrefix(`/media/`))"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-secure.entrypoints=websecure"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-secure.tls.certresolver=le"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-secure.priority=95"
+      - "traefik.http.routers.${ENVIRONMENT}-assets-secure.service=${ENVIRONMENT}-assets-svc"
+      # Service definition for assets (nginx)
+      - "traefik.http.services.${ENVIRONMENT}-assets-svc.loadbalancer.server.port=80"
+
+      - "traefik.docker.network=web"
+
+networks:
+  web:
+    external: true
+    name: web
+  backend:
+    external: true
+    name: backend

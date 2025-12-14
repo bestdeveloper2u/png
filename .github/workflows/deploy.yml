@@ -1,0 +1,174 @@
+name: Build & Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment_branch:
+        required: false
+        type: string
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-frontend:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build Next.js
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+        run: npm run build
+
+  ci-backend:
+    name: Backend CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No .env needed — CI uses SQLite
+      - name: Create empty env for CI (if required by settings)
+        run: touch .env
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install psycopg dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libpq-dev
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Django will use SQLite in CI (because no env vars provided)
+      - name: Django Checks
+        run: python manage.py check
+
+      - name: Migrations Check
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run Tests
+        run: python manage.py test --noinput
+
+      - name: Collect Static
+        run: python manage.py collectstatic --noinput
+
+  build-docker:
+    name: Docker Compose Build
+    runs-on: ubuntu-latest
+    needs:
+      - ci-frontend
+      - ci-backend
+    env:
+      DOCKER_BUILDKIT: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Traefik Network (CI)
+        run: docker network create web || true
+
+      # docker-compose requires .env files to exist
+      - name: Create empty env files for CI
+        run: |
+          touch frontend/.env
+          touch backend/.env
+
+      - name: Validate Compose File
+        run: docker compose -f docker-compose.yml config
+
+      - name: Build Application Images
+        run: docker compose -f docker-compose.yml build
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs:
+      - build-docker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add Known Hosts (Production)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_KNOWN_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Add Known Hosts (Staging)
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_KNOWN_HOST }}" >> ~/.ssh/known_hosts
+      
+      - name: Deploy to Production
+        if: github.ref == 'refs/heads/main'
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.PRODUCTION_SERVER }} << 'SSH'
+            set -e
+            cd /var/apps/pngpoint.com
+            git fetch origin main
+            git reset --hard origin/main
+            docker network create web || true
+            docker compose pull || true
+            docker compose up -d --build
+
+            # Apply Django migrations
+            docker compose exec backend python manage.py migrate --noinput
+          SSH
+
+      - name: Deploy to Staging
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.STAGING_SERVER }} << 'SSH'
+            set -e
+            cd /var/apps/staging.pngpoint.com
+            git fetch origin staging
+            git reset --hard origin/staging
+            docker network create web || true
+            docker compose pull || true
+            docker compose up -d --build
+
+            # Apply Django migrations
+            docker compose exec backend python manage.py migrate --noinput
+          SSH

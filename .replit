@@ -1,0 +1,70 @@
+modules = ["nodejs-20", "web", "python-3.11"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend (Django)"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend (Next.js)"
+
+[[workflows.workflow]]
+name = "Backend (Django)"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd backend && python manage.py runserver 0.0.0.0:8000"
+
+[[workflows.workflow]]
+name = "Frontend (Next.js)"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm run dev"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd backend && gunicorn --bind=0.0.0.0:8000 --reuse-port --workers=2 app.wsgi:application & cd frontend && npm run start"]
+build = ["bash", "-c", "cd frontend && npm run build && cd ../backend && python manage.py collectstatic --noinput"]
+
+[userenv]
+
+[userenv.development]
+NEXT_PUBLIC_SITE_URL = "https://4037554a-fc57-445c-aad6-d7209c44eb7e-00-22t5jypuwdz9k.riker.replit.dev"
+NEXT_PUBLIC_API_URL = "https://4037554a-fc57-445c-aad6-d7209c44eb7e-00-22t5jypuwdz9k.riker.replit.dev/api/v1"
+DEBUG = "true"
+NEXT_PUBLIC_MEDIA_URL = "https://4037554a-fc57-445c-aad6-d7209c44eb7e-00-22t5jypuwdz9k.riker.replit.dev"
+
+[userenv.shared]
+NEXT_PUBLIC_SITE_NAME = "PNGPoint"

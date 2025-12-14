@@ -1,0 +1,53 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+env/
+venv/
+.mypy_cache/
+.pytest_cache/
+.coverage
+*.egg-info/
+
+# ==========================
+# Node / Next.js
+# ==========================
+node_modules/
+.next/
+out/
+dist/
+/srv
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.cache/
+
+# ==========================
+# Environment files (Secrets)
+# ==========================
+.env
+
+
+
+# ==========================
+# Logs
+# ==========================
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# ==========================
+# OS / Editor junk files
+# ==========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sqlite3
