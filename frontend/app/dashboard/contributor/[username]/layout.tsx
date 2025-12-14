@@ -21,7 +21,7 @@ export default function ContributorRootLayout({
 
     useEffect(() => {
         if (!isAuthed) {
-            router.replace("/login");
+            router.replace("/user/login");
         }
     }, [isAuthed, router]);
 
