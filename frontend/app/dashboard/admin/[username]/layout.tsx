@@ -3,17 +3,32 @@
 import { AsideBar } from "@/components/dashboard/asidebar/asidebar";
 import { BottomBar } from "@/components/dashboard/bottombar/bottombar";
 import { TopBar } from "@/components/dashboard/topbar/topbar";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function AdminRootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    const isAuthed = useAuth();
+    const router = useRouter();
     const [sideBar, setSideBar] = useState<boolean>(false);
     const handleSideBarOpen = () => {
         setSideBar(!sideBar);
     }
+
+    useEffect(() => {
+        if (!isAuthed) {
+            router.replace("/login");
+        }
+    }, [isAuthed, router]);
+
+    if (!isAuthed) {
+        return null;
+    }
+
     return (
         <section className="relative top-0 left-0 right-0 w-full h-screen text-black bg-white overflow-hidden scrollbar-hidden">
             <div className="grid grid-cols-1 md:grid-cols-[15%_85%] justify-between w-full h-full relative">
