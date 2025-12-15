@@ -30,7 +30,8 @@ export default function UploadImagesComponent() {
 
             setImages((prev) => [...prev, ...newImages]);
 
-            const batchSize = 10;
+            // Keep batches small to avoid server/gateway timeouts on large uploads
+            const batchSize = 3;
             const limit = pLimit(2);
             const totalBatches = Math.ceil(newImages.length / batchSize);
             const uploadTasks = [];
@@ -98,6 +99,7 @@ export default function UploadImagesComponent() {
                                     status: "error",
                                     errorMessage:
                                         error?.data?.errors?.name?.[0] ||
+                                        error?.data?.message ||
                                         error?.message ||
                                         "Unknown error occurred",
                                 };
