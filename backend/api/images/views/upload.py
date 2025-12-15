@@ -15,6 +15,7 @@ from core.utils import (
     VALIDATE_IMAGE_SIZE,
     VALIDATE_IMAGE_DIMENSIONS,
 )
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,13 @@ class ImagesUploadAPIView(APIView):
             return Response({
                 "success": False,
                 "error": "No images provided"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        max_images = getattr(settings, "MAX_UPLOAD_IMAGES_PER_REQUEST", 3)
+        if len(images) > max_images:
+            return Response({
+                "success": False,
+                "error": f"Too many images in one request. Maximum is {max_images}."
             }, status=status.HTTP_400_BAD_REQUEST)
         
         created_images = []
