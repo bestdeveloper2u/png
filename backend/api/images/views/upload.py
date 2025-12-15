@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 from django.utils.text import slugify
 from rest_framework.views import APIView
@@ -9,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from api.throttling import UploadThrottle, BurstRateThrottle
 from django.db import transaction
 from images.models import Images, Keywords
+from images.tasks import process_bulk_upload
 from images.services.cloudflare import UPLOAD_IMAGES_TO_CLOUDFLARE
 from core.utils import (
     VALIDATE_IMAGE_EXTENSION,
@@ -56,6 +58,7 @@ class ImagesUploadAPIView(APIView):
         titles = request.data.getlist("title")
         descriptions = request.data.getlist("description")
         keywords_list = request.data.getlist("keywords")
+        use_async = getattr(settings, "USE_ASYNC_IMAGE_UPLOADS", True)
 
         if not images:
             return Response({
@@ -73,9 +76,13 @@ class ImagesUploadAPIView(APIView):
         created_images = []
         failed_images = []
         used_titles = set()
+        temp_paths = []
+        image_ids = []
+        inline_uploads = use_async is False
 
         for i, image_file in enumerate(images):
             try:
+                temp_path = None
                 try:
                     title = titles[i].strip()
                 except IndexError:
@@ -96,53 +103,119 @@ class ImagesUploadAPIView(APIView):
                 except ValidationError as exc:
                     raise ValueError(str(exc))
 
-                try:
+                if inline_uploads:
                     cloudflare_data = UPLOAD_IMAGES_TO_CLOUDFLARE(
                         image_file, filename=image_file.name
                     )
-                except Exception as e:
-                    raise ValueError(f"Cloudflare upload failed for {image_file.name}: {str(e)}")
-                
-                with transaction.atomic():
-                    img_obj = Images.objects.create(
-                        user=request.user,
-                        title=title,
-                        slug=slug,
-                        description=description,
-                        cloudflare_id=cloudflare_data["id"],
-                        cloudflare_url=cloudflare_data["url"],
-                    )
+                    with transaction.atomic():
+                        img_obj = Images.objects.create(
+                            user=request.user,
+                            title=title,
+                            slug=slug,
+                            description=description,
+                            cloudflare_id=cloudflare_data["id"],
+                            cloudflare_url=cloudflare_data["url"],
+                            status='uploaded',
+                        )
 
-                    if keyword_str:
-                        raw_keywords = [k.strip() for k in keyword_str.split(",") if k.strip()]
-                        seen = set()
-                        keyword_objs = []
-                        for kw in raw_keywords:
-                            slugified_kw = slugify(kw)
-                            if not slugified_kw or slugified_kw in seen:
-                                continue
-                            seen.add(slugified_kw)
-                            keyword = Keywords.objects.filter(slug=slugified_kw).first()
-                            if not keyword:
-                                keyword = Keywords.objects.create(name=kw, slug=slugified_kw)
-                            keyword_objs.append(keyword)
+                        if keyword_str:
+                            raw_keywords = [k.strip() for k in keyword_str.split(",") if k.strip()]
+                            seen = set()
+                            keyword_objs = []
+                            for kw in raw_keywords:
+                                slugified_kw = slugify(kw)
+                                if not slugified_kw or slugified_kw in seen:
+                                    continue
+                                seen.add(slugified_kw)
+                                keyword = Keywords.objects.filter(slug=slugified_kw).first()
+                                if not keyword:
+                                    keyword = Keywords.objects.create(name=kw, slug=slugified_kw)
+                                keyword_objs.append(keyword)
 
-                        if keyword_objs:
-                            img_obj.keywords.add(*keyword_objs)
+                            if keyword_objs:
+                                img_obj.keywords.add(*keyword_objs)
 
-                    created_images.append({
-                        "id": img_obj.id,
-                        "title": img_obj.title,
-                        "slug": img_obj.slug,
-                        "status": "success"
-                    })
+                        created_images.append({
+                            "id": img_obj.id,
+                            "title": img_obj.title,
+                            "slug": img_obj.slug,
+                            "status": "success"
+                        })
+                else:
+                    upload_dir = os.path.join(settings.MEDIA_ROOT, "temp_uploads")
+                    os.makedirs(upload_dir, exist_ok=True)
+                    temp_filename = f"{slug}-{image_file.name}"
+                    temp_path = os.path.join(upload_dir, temp_filename)
+                    with open(temp_path, "wb+") as destination:
+                        for chunk in image_file.chunks():
+                            destination.write(chunk)
+                    
+                    with transaction.atomic():
+                        img_obj = Images.objects.create(
+                            user=request.user,
+                            title=title,
+                            slug=slug,
+                            description=description,
+                            status='pending',
+                        )
+
+                        if keyword_str:
+                            raw_keywords = [k.strip() for k in keyword_str.split(",") if k.strip()]
+                            seen = set()
+                            keyword_objs = []
+                            for kw in raw_keywords:
+                                slugified_kw = slugify(kw)
+                                if not slugified_kw or slugified_kw in seen:
+                                    continue
+                                seen.add(slugified_kw)
+                                keyword = Keywords.objects.filter(slug=slugified_kw).first()
+                                if not keyword:
+                                    keyword = Keywords.objects.create(name=kw, slug=slugified_kw)
+                                keyword_objs.append(keyword)
+
+                            if keyword_objs:
+                                img_obj.keywords.add(*keyword_objs)
+
+                        temp_paths.append(temp_path)
+                        image_ids.append(img_obj.id)
+
+                        created_images.append({
+                            "id": img_obj.id,
+                            "title": img_obj.title,
+                            "slug": img_obj.slug,
+                            "status": "pending"
+                        })
 
             except Exception as e:
+                if 'temp_path' in locals():
+                    try:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                    except Exception:
+                        pass
                 failed_images.append({
                     "filename": getattr(image_file, "name", f"image_{i+1}"),
                     "error": str(e),
                     "status": "failed"
                 })
+
+        if image_ids and not inline_uploads:
+            try:
+                process_bulk_upload.delay(temp_paths, image_ids, metadata=None, user_id=request.user.id)
+            except Exception as e:
+                logger.error(f"Failed to enqueue upload task: {str(e)}")
+                for path in temp_paths:
+                    try:
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except Exception:
+                        pass
+                failed_images.extend([{
+                    "filename": os.path.basename(path),
+                    "error": "Failed to enqueue upload task",
+                    "status": "failed"
+                } for path in temp_paths])
+                created_images = []
 
         return Response({
             "success": True,
