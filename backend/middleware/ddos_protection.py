@@ -105,16 +105,15 @@ class DDoSProtectionMiddleware:
 
 
 class RequestSizeLimitMiddleware:
-    MAX_CONTENT_LENGTH = 25 * 1024 * 1024
-
     def __init__(self, get_response):
         self.get_response = get_response
+        self.max_content_length = getattr(settings, 'REQUEST_MAX_CONTENT_LENGTH', 25 * 1024 * 1024)
 
     def __call__(self, request):
         content_length = request.META.get('CONTENT_LENGTH')
         if content_length:
             try:
-                if int(content_length) > self.MAX_CONTENT_LENGTH:
+                if int(content_length) > self.max_content_length:
                     return JsonResponse({
                         'success': False,
                         'message': 'Request too large.',

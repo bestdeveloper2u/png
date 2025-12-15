@@ -24,9 +24,10 @@ def VALIDATE_IMAGE_EXTENSION(image):
         )
     
 def VALIDATE_IMAGE_SIZE(image):
-    max_size = 10 * 1024 * 1024
+    max_size_mb = getattr(settings, "IMAGE_UPLOAD_MAX_SIZE_MB", 10)
+    max_size = max_size_mb * 1024 * 1024
     if image.size > max_size:
-        raise ValidationError(_('The image file size must be less than 10 MB.'))
+        raise ValidationError(_(f'The image file size must be less than {max_size_mb} MB.'))
 
 def VALIDATE_IMAGE_DIMENSIONS(image):
     min_width = getattr(settings, "IMAGE_UPLOAD_MIN_WIDTH", 1000)
