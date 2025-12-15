@@ -39,7 +39,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./backend/.env
-    command: daphne -b 0.0.0.0 -p 8000 app.asgi:application
+    command: daphne --http-timeout 300 -b 0.0.0.0 -p 8000 app.asgi:application
     volumes:
       - ./backend/static:/app/static
       - ./backend/media:/app/media
