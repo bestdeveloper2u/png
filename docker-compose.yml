@@ -69,13 +69,6 @@ services:
       - "traefik.http.routers.${ENVIRONMENT}-backend-api-secure.service=${ENVIRONMENT}-backend-svc"
       # Service definition for backend (Django / Daphne)
       - "traefik.http.services.${ENVIRONMENT}-backend-svc.loadbalancer.server.port=8000"
-      # Extend upstream timeouts to avoid 502s on large uploads
-      - "traefik.http.services.${ENVIRONMENT}-backend-svc.loadbalancer.serversTransport=${ENVIRONMENT}-backend-transport"
-      - "traefik.http.serversTransports.${ENVIRONMENT}-backend-transport.forwardingTimeouts.dialTimeout=30s"
-      - "traefik.http.serversTransports.${ENVIRONMENT}-backend-transport.forwardingTimeouts.responseHeaderTimeout=300s"
-      - "traefik.http.serversTransports.${ENVIRONMENT}-backend-transport.forwardingTimeouts.idleConnTimeout=300s"
-      - "traefik.http.serversTransports.${ENVIRONMENT}-backend-transport.forwardingTimeouts.readIdleTimeout=300s"
-      - "traefik.http.serversTransports.${ENVIRONMENT}-backend-transport.forwardingTimeouts.pingTimeout=30s"
 
       - "traefik.docker.network=web"
 
