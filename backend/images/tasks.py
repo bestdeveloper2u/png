@@ -25,7 +25,6 @@ def process_bulk_upload(images_path, image_ids, metadata=None, user_id=None):
             img_obj = Images.objects.get(id=image_ids[i])
             img_obj.cloudflare_url = cloudflare_data["url"]
             img_obj.cloudflare_id = cloudflare_data["id"]
-            img_obj.status = 'uploaded'
             img_obj.save()
 
             logger.info(f"Uploaded image {img_obj.id} successfully. URL: {cloudflare_data['url']}")

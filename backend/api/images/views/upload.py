@@ -115,7 +115,6 @@ class ImagesUploadAPIView(APIView):
                             description=description,
                             cloudflare_id=cloudflare_data["id"],
                             cloudflare_url=cloudflare_data["url"],
-                            status='uploaded',
                         )
 
                         if keyword_str:

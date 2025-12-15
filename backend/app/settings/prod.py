@@ -142,13 +142,13 @@ if REDIS_CACHE_URL and USE_REDIS and not DEBUG:
     REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
         'anon': '30/minute',
         'user': '300/minute',
-        'burst': '3/second',
-        'login': '3/minute',
-        'register': '3/hour',
+        'burst': '30/second',
+        'login': '30/minute',
+        'register': '100/hour',
         'sustained': '300/hour',
-        'public': '30/minute',
-        'token_refresh': '10/minute',
-        'upload': '20/hour',
+        'public': '300/minute',
+        'token_refresh': '100/minute',
+        'upload': '500/hour',
     }
 else:
     CACHES = {
