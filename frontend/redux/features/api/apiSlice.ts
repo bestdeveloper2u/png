@@ -51,7 +51,8 @@ const baseQueryWithReauth = async (
     }
     const state = api.getState() as RootState;
     let accessToken: string | null | undefined = state.auth.tokens.access_token;
-    const refreshToken: string | null | undefined = state.auth.tokens.refresh_token;
+    let refreshToken: string | null | undefined =
+        state.auth.tokens.refresh_token;
     if (accessToken) {
         const isValid = await verifyAccessToken(accessToken, api, extraOptions);
         if (!isValid) {
@@ -79,15 +80,20 @@ const baseQueryWithReauth = async (
             api,
             extraOptions
         );
-        const newAccessToken = (refreshResult.data as { access?: string })?.access;
+        const refreshData = refreshResult.data as
+            | { access?: string; refresh?: string }
+            | undefined;
+        const newAccessToken = refreshData?.access;
+        const newRefreshToken = refreshData?.refresh ?? refreshToken;
         if (newAccessToken) {
             accessToken = newAccessToken;
+            refreshToken = newRefreshToken;
             api.dispatch(
                 setAuth({
                     user: state.auth.user,
                     tokens: {
                         access_token: newAccessToken,
-                        refresh_token: refreshToken,
+                        refresh_token: newRefreshToken ?? null,
                     },
                 })
             );
